@@ -79,3 +79,19 @@ services:
       - "9200:9200"
       - "9300:9300"
       - "9090:9090"
+
+  board:
+    build: ./board
+    init: true
+    restart: on-failure
+    ports:
+      - "8080:8080"
+    environment:
+      TZ: Asia/Shanghai
+    depends_on:
+      - sap
+      - bridge
+      - openwms-common
+      - openwms-tms
+      - opentcs
+      - python-chain

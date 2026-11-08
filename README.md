@@ -25,10 +25,7 @@
    ```
 
    第一次要下载镜像并构建，需要几分钟。
-4. 两条链路都要看到确认才算跑通。
-
-   - 完整版：打开 <http://localhost:8090/status>，出现「搬运完成，状态已回到 SAP」。<http://localhost:4004/odata/v4/task/Tasks> 里任务 `1000000001` 的 `status` 是 `CONFIRMED`。完整版大约需要一分钟。
-   - Python 简化版：打开 <http://localhost:9004/tasks>，同一任务号的 `status` 是 `CONFIRMED`，托盘位置看 <http://localhost:9120/transport-units/00000000000000004711>，应在 `FGIN/PICK/WORK/0001/0000`。这一套大约 5 秒。
+4. 打开 <http://localhost:8080>。这一页是架构图，每个框里的文字是该服务此刻的真实结果，不是画上去的示例。两条链路的任务 `1000000001` 都显示「已确认」，库区平面上两块牌子都停在拣选位，才算跑通。完整版大约一分钟，Python 大约 5 秒，页面每 2 秒自己刷新。
 
 停掉用 `docker compose down`。数据都在内存里，再次 `docker compose up -d` 会从预制任务重新跑。
 
@@ -99,5 +96,5 @@ docker compose logs python-chain
 
 - 仓库里只有自己写的源码，`@sap/cds` 在构建时从 npm 下载，下载的人各自接受 SAP 开发者许可，所以仓库可以公开。不要提交 `node_modules`，也不要把打好的 `sap` 镜像推到公开镜像仓库或附在 Release 里：这个许可不允许把 SAP 的软件转给第三方。
 - 第一次构建要访问 Docker Hub、npm 和 GitHub（下载 openTCS 7.5.0）。拉镜像卡住时，在 Docker Desktop 的设置里配置代理或镜像加速。
-- 端口 `4004`、`8090`、`8120`、`8131`、`55200`、`9004`、`9090`、`9120`、`9200`、`9300` 不能被别的程序占用。
+- 端口 `4004`、`8080`、`8090`、`8120`、`8131`、`55200`、`9004`、`9090`、`9120`、`9200`、`9300` 不能被别的程序占用。调度板是 `8080`。
 - Docker 的虚拟磁盘默认在 C 盘。C 盘空间不多时，先在 Docker Desktop 的 **Settings → Resources → Advanced** 里把磁盘位置改到 D 盘。
