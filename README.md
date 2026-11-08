@@ -52,7 +52,7 @@ Invoke-RestMethod -Method Post -Uri 'http://localhost:4004/odata/v4/task/Tasks(7
 
 ## 注意
 
-- 仓库保持 Private。构建时会安装 `@sap/cds`，它只许自己学习用，不要公开仓库，也不要把打好的镜像推到公开镜像仓库。
+- 仓库里只有自己写的源码，`@sap/cds` 在构建时从 npm 下载，下载的人各自接受 SAP 开发者许可，所以仓库可以公开。不要提交 `node_modules`，也不要把打好的 `sap` 镜像推到公开镜像仓库或附在 Release 里：这个许可不允许把 SAP 的软件转给第三方。
 - 第一次构建要访问 Docker Hub、npm 和 GitHub（下载 openTCS 7.5.0）。拉镜像卡住时，在 Docker Desktop 的设置里配置代理或镜像加速。
 - 端口 `4004`、`8090`、`8120`、`8131`、`55200` 不能被别的程序占用。
 - Docker 的虚拟磁盘默认在 C 盘。C 盘空间不多时，先在 Docker Desktop 的 **Settings → Resources → Advanced** 里把磁盘位置改到 D 盘。
