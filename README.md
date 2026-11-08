@@ -36,7 +36,7 @@
    docker compose up --build -d
    ```
 
-   第一次要下载镜像并构建，需要几分钟。
+   第一次要下载镜像并构建，视网速大约 5 到 10 分钟，其中最慢的是从 GitHub 下载 87 MB 的 openTCS。以后再启动只要几十秒。
 4. 打开 <http://localhost:8080>。这一页是架构图，每个框里的文字是该服务此刻的真实结果，不是画上去的示例。两条链路的任务 `1000000001` 都显示「已确认」，库区平面上两块牌子都停在拣选位，才算跑通。完整版大约一分钟，Python 大约 5 秒，页面每 2 秒自己刷新。
 
 停掉用 `docker compose down`。数据都在内存里，再次 `docker compose up -d` 会从预制任务重新跑。
@@ -105,7 +105,29 @@ docker compose logs python-chain
 | Loopback 驱动 | `chain/vehicle.py`：沿路线每走一步、每做完一个动作就向车队回报 |
 | `bridge/index.js` | `chain/bridge.py`：轮询已下达的任务，依次在 WMS、车队下单，最后回写 SAP |
 
-只想看 Python 源码、不启动完整版时，在 `python` 目录执行 `python -m chain`（需要 Python 3.10 以上）。这和根目录那条命令二选一。测试在 `python` 目录里执行 `python -m unittest -b`。
+不用 Docker、直接在本机跑 Python 版（需要 Python 3.10 以上，只用标准库）：
+
+```powershell
+docker compose down
+cd python
+python -m chain
+```
+
+这和根目录那条 Docker 命令二选一，容器开着时端口会冲突，所以先 `docker compose down`。几秒后日志里出现「任务 1000000001 搬运完成，结果已回写 SAP」，按 Ctrl+C 停止。测试在 `python` 目录里执行 `python -m unittest -b`，它用临时端口，容器开着也能跑。
+
+## 重新生成图
+
+`docs/figures` 里的图已经生成好，直接打开就能看。改了代码想重新出图时，需要 Python 3.10 以上和 matplotlib：
+
+```powershell
+pip install matplotlib
+docker compose down
+python docs/figures/record_run.py
+cd docs/figures
+python make_figures.py
+```
+
+`record_run.py` 会自己执行 `docker compose up -d`，在两条链路都确认后停止采样，把数据写进 `run_trace.json`。`make_figures.py` 读这份数据，生成中英文两版共十张图。只改了文字、不需要重新采样时，跳过前两行命令即可。
 
 ## 注意
 
