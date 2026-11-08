@@ -130,7 +130,7 @@
 </main>
 <script>
 const LABELS = {
-  CONFIRMED: '已确认', FINISHED: '已完成', IN_PROCESS: '执行中', RELEASED: '已下达',
+  CONFIRMED: '已确认', FINISHED: '已完成', IN_PROCESS: '执行中', RELEASED: '已下达', OPEN: '未清',
   CREATED: '已创建', STARTED: '已开始', BEING_PROCESSED: '执行中', DISPATCHABLE: '待分配',
   IDLE: '空闲', EXECUTING: '行驶中', CANCELLED: '已取消', EXCEPTION: '异常', FAILED: '失败'
 }
@@ -153,9 +153,9 @@ function lane(title, chain) {
   const ops = { 'Load cargo': '装货', 'Unload cargo': '卸货' }
   const places = (chain.fleet && chain.fleet.destinations || []).map((item) => field('路段', `${item.place} ${ops[item.operation] || item.operation} ${label(item.state)}`)).join('')
   const sapState = task ? task.status : null
-  const bridgeState = !chain.bridge ? null : (chain.bridge.includes('完成') || chain.bridge.includes('确认') ? 'FINISHED' : (chain.bridge.includes('失败') || chain.bridge.includes('异常') ? 'FAILED' : 'IN_PROCESS'))
+  const bridgeState = !chain.bridge ? null : (chain.bridge.includes('完成') || chain.bridge.includes('确认') ? 'FINISHED' : (chain.bridge.includes('失败') || chain.bridge.includes('异常') || chain.bridge.includes('停手') ? 'FAILED' : 'IN_PROCESS'))
   const cards = [
-    node('任务', 'SAP', sapState, task ? field('单号', task.taskNo) + field('货', `${task.product} × ${task.qty}`) + field('仓位', `${task.srcBin} → ${task.dstBin}`) : field('', chain.tasksError || '还没有这张任务')),
+    node('任务', 'SAP', sapState, task ? field('单号', task.taskNo) + field('仓库单', task.warehouseOrder) + field('货', `${task.product} × ${task.qty}`) + field('仓位', `${task.srcBin} → ${task.dstBin}`) : field('', chain.tasksError || '还没有这张任务')),
     node('调度', '桥接', bridgeState, field('最近', chain.bridge || chain.bridgeError || '还没有日志')),
     node('仓库', 'WMS', chain.wms && chain.wms.state, chain.wms ? field('运输单', chain.wms.id) + field('托盘', (chain.pallet && chain.pallet.location) || '') : field('', chain.wmsError || (chain.pallet && chain.pallet.error) || '')),
     node('车队', 'Fleet', chain.fleet && chain.fleet.state, chain.fleet ? field('订单', chain.fleet.name) + places : field('', chain.fleetError || '')),

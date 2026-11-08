@@ -1,0 +1,2 @@
+EWMWarehouse;WarehouseTask;WarehouseTaskItem;WarehouseOrder;WarehouseProcessType;Product;TargetQuantityInAltvUnit;AlternativeUnit;SourceStorageBin;DestinationStorageBin;SourceHandlingUnit;WhseTaskCrtnUTCDateTime;LastChangeUTCDateTime
+E001;1000000001;0;2000000001;9999;MAT-100;1.000;EA;IPNT-01;PICK-01;00000000000000004711;2026-11-07T00:00:00.000Z;2026-11-07T00:00:00.000Z

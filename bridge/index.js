@@ -3,6 +3,7 @@ const fs = require('fs')
 const path = require('path')
 
 const sap = process.env.SAP_URL || 'http://sap:4004'
+const ewm = `${sap}/sap/opu/odata4/sap/api_warehouse_order_task_2/srvd_a2x/sap/warehouseorder/0001`
 const wmsCommon = process.env.WMS_COMMON_URL || 'http://openwms-common:8120'
 const wmsTms = process.env.WMS_TMS_URL || 'http://openwms-tms:8131'
 const fleet = process.env.FLEET_URL || 'http://opentcs:55200'
@@ -17,6 +18,10 @@ const bins = {
 
 const journal = []
 const inflight = new Set()
+// 标准接口里没有存外部单号的字段，任务和仓库单、车队单的对照由桥接自己保存
+const links = {}
+const parked = new Set()
+let csrfToken = null
 
 function note(message, extra) {
   const line = { at: new Date().toISOString(), message, ...(extra ? { extra } : {}) }
@@ -89,26 +94,43 @@ async function ensureFleet() {
   note('Loopback 车辆已启用并可以接单', { vehicle: vehicleName })
 }
 
+function taskPath(task) {
+  return `WarehouseTask(EWMWarehouse='${task.EWMWarehouse}',WarehouseTask='${task.WarehouseTask}',WarehouseTaskItem='${task.WarehouseTaskItem}')`
+}
+
 async function sapTasks(filter) {
-  const url = `${sap}/odata/v4/task/Tasks?$filter=${encodeURIComponent(filter)}`
+  const url = `${ewm}/WarehouseTask?$filter=${encodeURIComponent(filter)}`
   const { body } = await req(url)
   return body.value || []
 }
 
-async function sapOne(id) {
-  const { body, headers } = await req(`${sap}/odata/v4/task/Tasks(${id})`)
+async function sapOne(task) {
+  const { body, headers } = await req(`${ewm}/${taskPath(task)}`)
   if (!body['@odata.etag']) body['@odata.etag'] = headers.get('etag')
   return body
 }
 
+async function fetchCsrf() {
+  const response = await fetch(`${ewm}/`, { method: 'HEAD', headers: { 'X-CSRF-Token': 'Fetch' } })
+  csrfToken = response.headers.get('x-csrf-token')
+  if (!csrfToken) throw new Error(`SAP 没有返回 CSRF 令牌：${response.status}`)
+}
+
 async function sapAction(task, action, payload) {
-  const headers = {}
-  if (task['@odata.etag']) headers['If-Match'] = task['@odata.etag']
-  await req(`${sap}/odata/v4/task/Tasks(${task.ID})/TaskService.${action}`, {
+  const fresh = await sapOne(task)
+  if (!csrfToken) await fetchCsrf()
+  const send = () => req(`${ewm}/${taskPath(task)}/SAP__self.${action}`, {
     method: 'POST',
-    headers,
+    headers: { 'X-CSRF-Token': csrfToken, 'If-Match': fresh['@odata.etag'] },
     body: JSON.stringify(payload || {})
   })
+  try {
+    return (await send()).body
+  } catch (error) {
+    if (error.status !== 403 || error.headers.get('x-csrf-token') !== 'Required') throw error
+    await fetchCsrf()
+    return (await send()).body
+  }
 }
 
 async function ensureLocation(spec) {
@@ -214,106 +236,95 @@ async function withdrawFleet(name) {
 }
 
 function fleetName(task) {
-  return `SAP-${task.taskNo}`
+  return `SAP-${task.WarehouseTask}`
+}
+
+// 标准接口没有"回写异常"，失败的任务在 SAP 里保持未清，桥接停手等人处理
+function park(task, text) {
+  parked.add(task.WarehouseTask)
+  links[task.WarehouseTask] = { ...links[task.WarehouseTask], problem: text }
+  note('任务停手，SAP 里仍是未清，等人处理', { task: task.WarehouseTask, text })
 }
 
 async function finishSuccess(task, pKey) {
   await changeWmsState(pKey, 'FINISHED')
-  await moveTu(bins[task.dstBin].openwms)
-  const fresh = await sapOne(task.ID)
-  await sapAction(fresh, 'confirm', { actualQty: Number(fresh.qty) })
-  note('搬运完成，状态已回到 SAP', { taskNo: task.taskNo, wms: pKey })
+  await moveTu(bins[task.DestinationStorageBin].openwms)
+  await sapAction(task, 'ConfirmWarehouseTaskExact', { DirectWhseTaskConfIsAllowed: true })
+  note('搬运完成，已在 SAP 确认仓库任务', { task: task.WarehouseTask, wms: pKey })
 }
 
-async function finishException(task, pKey, text) {
+async function finishFailure(task, pKey, text) {
   try { await changeWmsState(pKey, 'ONFAILURE') } catch (error) {
     note('OpenWMS 置为失败没有成功', { error: error.message })
   }
-  const fresh = await sapOne(task.ID)
-  await sapAction(fresh, 'reportException', { code: 'FLEET', text })
-  note('搬运失败，已回写异常', { taskNo: task.taskNo, text })
+  park(task, text)
 }
 
 async function finishCancel(task, pKey) {
   try { await changeWmsState(pKey, 'CANCELED') } catch (error) {
     note('OpenWMS 取消没有成功', { error: error.message })
   }
-  const fresh = await sapOne(task.ID)
-  await sapAction(fresh, 'acceptCancel', {})
-  note('取消已被下游接受', { taskNo: task.taskNo })
+  note('SAP 已取消，下游单据也已撤销', { task: task.WarehouseTask })
 }
 
 async function watchFleet(task, pKey, name) {
   const deadline = Date.now() + 180000
   let cancelSent = false
   while (Date.now() < deadline) {
-    const [fresh] = await sapTasks(`taskNo eq '${task.taskNo}'`)
-    if (fresh && fresh.cancelRequested && !cancelSent) {
+    const fresh = await sapOne(task)
+    if (fresh.WarehouseTaskStatus === 'A' && !cancelSent) {
       await withdrawFleet(name)
       cancelSent = true
-      note('已向 openTCS 撤回运输单', { name })
+      note('SAP 取消了仓库任务，已向 openTCS 撤回运输单', { name })
     }
     const state = await fleetState(name)
     if (state === 'FINISHED') {
-      if (cancelSent) await finishException(task, pKey, '取消请求到达时车辆已经完成搬运')
+      if (cancelSent) park(task, 'SAP 取消时车辆已经完成搬运，实物和账面不一致')
       else await finishSuccess(task, pKey)
       return
     }
     if (state === 'FAILED' || state === 'UNROUTABLE') {
       if (cancelSent) await finishCancel(task, pKey)
-      else await finishException(task, pKey, `openTCS 运输单结束于 ${state}`)
+      else await finishFailure(task, pKey, `openTCS 运输单结束于 ${state}`)
       return
     }
     await sleep(pollMs)
   }
-  await finishException(task, pKey, '等待 openTCS 超时')
+  await finishFailure(task, pKey, '等待 openTCS 超时')
 }
 
 async function accept(task) {
-  if (inflight.has(task.ID)) return
-  const src = bins[task.srcBin]
-  const dst = bins[task.dstBin]
+  if (inflight.has(task.WarehouseTask) || parked.has(task.WarehouseTask)) return
+  const src = bins[task.SourceStorageBin]
+  const dst = bins[task.DestinationStorageBin]
   if (!src || !dst) {
-    const fresh = await sapOne(task.ID)
-    await sapAction(fresh, 'reportException', { code: 'BIN', text: `没有仓位映射：${task.srcBin} -> ${task.dstBin}` })
+    park(task, `没有仓位映射：${task.SourceStorageBin} -> ${task.DestinationStorageBin}`)
     return
   }
-  inflight.add(task.ID)
+  inflight.add(task.WarehouseTask)
   const name = fleetName(task)
-  note('接手 SAP 搬运任务', { taskNo: task.taskNo, src: task.srcBin, dst: task.dstBin })
+  note('接手 SAP 仓库任务', { task: task.WarehouseTask, order: task.WarehouseOrder, src: task.SourceStorageBin, dst: task.DestinationStorageBin })
   try {
-    if (task.cancelRequested) {
-      await sapAction(task, 'acceptCancel', {})
-      note('任务在下达后被取消，尚未交给仓库', { taskNo: task.taskNo })
-      return
-    }
     await moveTu(src.openwms)
     const pKey = await createWmsOrder(dst.openwms)
+    links[task.WarehouseTask] = { warehouseOrder: task.WarehouseOrder, wms: pKey, fleet: name }
     note('已创建 OpenWMS 运输单', { pKey })
     try { await changeWmsState(pKey, 'STARTED') } catch (error) {
       note('显式启动运输单没有成功，继续使用当前状态', { error: error.message })
     }
     await createFleetOrder(name, src, dst)
-    const fresh = await sapOne(task.ID)
-    await sapAction(fresh, 'handover', { externalRef: pKey, fleetOrder: name })
     note('已下发 openTCS 运输单', { name })
     await watchFleet(task, pKey, name)
   } catch (error) {
-    note('处理任务失败', { taskNo: task.taskNo, error: error.message })
-    try {
-      const fresh = await sapOne(task.ID)
-      await sapAction(fresh, 'reportException', { code: 'BRIDGE', text: error.message.slice(0, 240) })
-    } catch (reportError) {
-      note('回写异常也失败了', { error: reportError.message })
-    }
+    park(task, error.message.slice(0, 240))
   } finally {
-    inflight.delete(task.ID)
+    inflight.delete(task.WarehouseTask)
   }
 }
 
 async function loop() {
-  const released = await sapTasks(`status eq 'RELEASED'`)
-  for (const task of released) {
+  const open = await sapTasks(`WarehouseTaskStatus eq ''`)
+  for (const task of open) {
     if (inflight.size > 0) break
     await accept(task)
   }
@@ -327,7 +338,7 @@ function startStatusServer() {
       return
     }
     response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
-    response.end(JSON.stringify({ inflight: [...inflight], journal: journal.slice(-40) }, null, 2))
+    response.end(JSON.stringify({ inflight: [...inflight], parked: [...parked], links, journal: journal.slice(-40) }, null, 2))
   })
   server.listen(8090, '0.0.0.0')
 }
@@ -335,13 +346,13 @@ function startStatusServer() {
 async function main() {
   startStatusServer()
   note('桥接启动，等待上下游')
-  await waitUntil('SAP', () => req(`${sap}/odata/v4/task/$metadata`))
+  await waitUntil('SAP', () => req(`${ewm}/$metadata`))
   await waitUntil('OpenWMS Common', () => req(`${wmsCommon}/actuator/info`))
   await waitUntil('OpenWMS TMS', () => req(`${wmsTms}/actuator/info`))
   await waitUntil('openTCS', () => req(`${fleet}/v1/kernel/version`))
   await ensureWms()
   await ensureFleet()
-  note('开始轮询已下达的 SAP 搬运任务')
+  note('开始轮询 SAP 未清的仓库任务')
   for (;;) {
     try {
       await loop()

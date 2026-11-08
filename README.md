@@ -2,7 +2,7 @@
 
 这条环境用来看清一笔搬运任务怎么从 SAP 下达到仓库，再交给车队执行，最后把结果写回去。车辆不会真的动，openTCS 的 Loopback 驱动会按路线走完并回报状态。
 
-仓库里有两套链路，由下面这一条命令一起启动。完整版用真实的 SAP CAP、OpenWMS 和 openTCS。简化版在 `python/` 目录，用 Python 标准库写成五个小服务，放在同一个容器里跑。架构和任务 `1000000001` 的逐步对应见 [架构.md](架构.md)。
+仓库里有两套链路，由下面这一条命令一起启动。完整版用真实的 SAP CAP、OpenWMS 和 openTCS。简化版在 `python/` 目录，用 Python 标准库写成五个小服务，放在同一个容器里跑。架构和任务 `1000000001` 的逐步对应见 [架构.md](架构.md)。完整版的 SAP 按 EWM 标准接口 `API_WAREHOUSE_ORDER_TASK_2` 模拟，学习这个接口见 [SAP标准接口.md](SAP标准接口.md)。
 
 ## 运行
 
@@ -31,30 +31,33 @@
 
 ## 再下一笔任务
 
-任务 `1000000002` 初始是 `CREATED`。下达时要带上它当前的 ETag：
+完整版的 SAP 模拟的是 S/4HANA EWM 的标准接口 `API_WAREHOUSE_ORDER_TASK_2`，路径、实体名、字段名、确认动作和真实系统一样。用标准接口新建一个仓库任务，要先取 CSRF 令牌：
 
 ```powershell
-Invoke-RestMethod -Method Post -Uri 'http://localhost:4004/odata/v4/task/Tasks(7b1e8c2a-0000-4000-8000-000000000002)/TaskService.release' -ContentType 'application/json' -Headers @{ 'If-Match' = 'W/"2026-11-07T00:00:00.000Z"' } -Body '{}'
+$svc = 'http://localhost:4004/sap/opu/odata4/sap/api_warehouse_order_task_2/srvd_a2x/sap/warehouseorder/0001'
+$token = (Invoke-WebRequest -Method Head -Uri "$svc/" -Headers @{ 'X-CSRF-Token' = 'Fetch' } -UseBasicParsing).Headers['x-csrf-token']
+Invoke-RestMethod -Method Post -Uri "$svc/WarehouseTask" -ContentType 'application/json' -Headers @{ 'X-CSRF-Token' = $token } -Body '{"EWMWarehouse":"E001","WarehouseProcessType":"9999","Product":"MAT-200","TargetQuantityInAltvUnit":2,"AlternativeUnit":"EA","SourceStorageBin":"IPNT-01","DestinationStorageBin":"PICK-01"}'
 ```
 
-桥接只接手 `RELEASED` 的任务，大约二十秒后这笔也会变成 `CONFIRMED`。
+桥接只接手未清（`WarehouseTaskStatus` 为空）的任务，大约二十秒后这笔会变成 `C`。每一步请求的含义、怎么取消、会遇到哪些错误，见 [SAP标准接口.md](SAP标准接口.md)。
 
 ## 链路
 
-1. SAP CAP 里有一笔已下达的搬运任务，状态是 `RELEASED`。
-2. 桥接把它对应的托盘先放到源仓位，再向 OpenWMS 创建运输单。
+1. SAP 里有一个未清的仓库任务 `1000000001`，属于仓库单 `2000000001`。
+2. 桥接把对应的托盘先放到源仓位，再向 OpenWMS 创建运输单。
 3. 桥接向 openTCS 下一张运输单：到入库位装货，再到拣选位卸货。
-4. Loopback 车辆跑完后，桥接把 OpenWMS 运输单改为完成，并确认 SAP 任务。
+4. Loopback 车辆跑完后，桥接把 OpenWMS 运输单改为完成，并在 SAP 调用 `ConfirmWarehouseTaskExact` 确认仓库任务。仓库单下的任务都确认后，仓库单自动变成 `C`。
+
+标准接口没有「交接」和「回写外部单号」，执行期间 SAP 一直是未清。SAP 任务对应哪张 OpenWMS 运输单、哪张 openTCS 订单，记在桥接里，<http://localhost:8090/status> 的 `links` 能看到。
 
 状态对应关系：
 
-| SAP | OpenWMS | openTCS |
+| SAP 仓库任务 | OpenWMS | openTCS |
 | --- | --- | --- |
-| RELEASED | 创建运输单 | |
-| IN_PROCESS | STARTED | BEING_PROCESSED |
-| CONFIRMED | FINISHED | FINISHED |
-| CANCELLED | CANCELED | FAILED（撤回之后） |
-| EXCEPTION | ONFAILURE | FAILED 或 UNROUTABLE |
+| 未清 `''` | 创建运输单，STARTED | BEING_PROCESSED |
+| 已确认 `C` | FINISHED | FINISHED |
+| 已取消 `A`（在 SAP 里取消） | CANCELED | FAILED（撤回之后） |
+| 仍是未清，桥接停手 | ONFAILURE | FAILED 或 UNROUTABLE |
 
 源仓位 `IPNT-01` 对应 OpenWMS 的 `FGIN/IPNT/0001/0000/0000`，目标仓位 `PICK-01` 对应 `FGIN/PICK/WORK/0001/0000`。
 
@@ -84,11 +87,11 @@ docker compose logs python-chain
 
 | 完整版 | 简化版 |
 | --- | --- |
-| SAP CAP | `chain/sap.py`：任务带版本号，动作要带 If-Match，版本不对返回 412，状态不对返回 409 |
+| SAP CAP（EWM 标准接口形状） | `chain/sap.py`：自定义的任务接口，不是 EWM 标准形状。任务带版本号，动作要带 If-Match，版本不对返回 412，状态不对返回 409 |
 | OpenWMS Common + TMS | `chain/wms.py`：托盘和运输单，运输单完成时托盘移到目标库位 |
 | openTCS 内核 | `chain/fleet.py`：运输订单分配给空闲车辆，按路线拆成一段段行驶任务下发 |
 | Loopback 驱动 | `chain/vehicle.py`：沿路线每走一步、每做完一个动作就向车队回报 |
-| `bridge/index.js` | `chain/bridge.py`：轮询 `RELEASED` 任务，依次在 WMS、车队下单，最后回写 SAP |
+| `bridge/index.js` | `chain/bridge.py`：轮询已下达的任务，依次在 WMS、车队下单，最后回写 SAP |
 
 只想看 Python 源码、不启动完整版时，在 `python` 目录执行 `python -m chain`（需要 Python 3.10 以上）。这和根目录那条命令二选一。测试在 `python` 目录里执行 `python -m unittest -b`。
 

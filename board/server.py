@@ -22,6 +22,8 @@ PY_WMS = os.environ.get('PYTHON_WMS_URL', 'http://python-chain:9120')
 PY_FLEET = os.environ.get('PYTHON_FLEET_URL', 'http://python-chain:9200')
 PY_VEHICLE = os.environ.get('PYTHON_VEHICLE_URL', 'http://python-chain:9300')
 PY_BRIDGE = os.environ.get('PYTHON_BRIDGE_URL', 'http://python-chain:9090')
+EWM = '/sap/opu/odata4/sap/api_warehouse_order_task_2/srvd_a2x/sap/warehouseorder/0001'
+EWM_STATUS = {'': 'OPEN', 'C': 'CONFIRMED', 'A': 'CANCELLED'}
 PALLET = '00000000000000004711'
 TASK = '1000000001'
 
@@ -53,13 +55,14 @@ def last_note(journal):
 
 
 def full_chain():
-    tasks = call('SAP', f'{SAP}/odata/v4/task/Tasks')
+    tasks = call('SAP', f'{SAP}{EWM}/WarehouseTask')
     bridge = call('桥接', f'{BRIDGE}/status')
     task = None
     if isinstance(tasks, dict):
-        task = next((item for item in tasks.get('value', []) if item.get('taskNo') == TASK), None)
-    order_id = task.get('externalRef') if task else None
-    fleet_name = (task or {}).get('fleetOrder') or f'SAP-{TASK}'
+        task = next((item for item in tasks.get('value', []) if item.get('WarehouseTask') == TASK), None)
+    link = (bridge.get('links') or {}).get(TASK, {}) if isinstance(bridge, dict) else {}
+    order_id = link.get('wms')
+    fleet_name = link.get('fleet') or f'SAP-{TASK}'
     wms = call('OpenWMS 运输单', f'{WMS_TMS}/v1/transport-orders/{order_id}') if order_id else {'error': 'SAP 还没有仓库单号'}
     pallet = call('托盘', f'{WMS_COMMON}/v1/transport-units?bk={PALLET}',
                   {'Accept': 'application/vnd.openwms.transport-unit-v1+json'})
@@ -77,19 +80,21 @@ def full_chain():
         ]
     return {
         'task': None if not task else {
-            'taskNo': task.get('taskNo'),
-            'status': task.get('status'),
-            'product': task.get('product'),
-            'qty': task.get('qty'),
-            'actualQty': task.get('actualQty'),
-            'srcBin': task.get('srcBin'),
-            'dstBin': task.get('dstBin'),
-            'externalRef': task.get('externalRef'),
-            'fleetOrder': task.get('fleetOrder'),
+            'taskNo': task.get('WarehouseTask'),
+            'warehouseOrder': task.get('WarehouseOrder'),
+            'status': EWM_STATUS.get(task.get('WarehouseTaskStatus'), task.get('WarehouseTaskStatus')),
+            'product': task.get('Product'),
+            'qty': task.get('TargetQuantityInAltvUnit'),
+            'actualQty': task.get('ActualQuantityInAltvUnit'),
+            'srcBin': task.get('SourceStorageBin'),
+            'dstBin': task.get('DestinationStorageBin'),
+            'externalRef': order_id,
+            'fleetOrder': link.get('fleet'),
         },
         'otherTasks': [
-            {'taskNo': item.get('taskNo'), 'status': item.get('status')}
-            for item in (tasks.get('value') or []) if item.get('taskNo') != TASK
+            {'taskNo': item.get('WarehouseTask'),
+             'status': EWM_STATUS.get(item.get('WarehouseTaskStatus'), item.get('WarehouseTaskStatus'))}
+            for item in (tasks.get('value') or []) if item.get('WarehouseTask') != TASK
         ] if isinstance(tasks, dict) else [],
         'wms': None if not isinstance(wms, dict) or 'error' in wms else {
             'id': wms.get('persistentKey') or order_id,
