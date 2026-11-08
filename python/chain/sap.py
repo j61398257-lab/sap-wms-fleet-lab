@@ -1,6 +1,6 @@
 import threading
 
-from .web import HttpError, log
+from .web import HttpError, find, log
 
 
 class Sap:
@@ -17,14 +17,20 @@ class Sap:
 
     def routes(self):
         return [
+            ('GET', r'/tasks', self.list_tasks),
             ('GET', r'/tasks/([^/]+)', self.get_task),
             ('POST', r'/tasks/([^/]+)/handover', self.handover),
             ('POST', r'/tasks/([^/]+)/confirm', self.confirm),
         ]
 
+    def list_tasks(self, request):
+        status = request.query.get('status')
+        with self.lock:
+            return [dict(task) for task in self.tasks.values() if status in (None, task['status'])]
+
     def get_task(self, request, task_no):
         with self.lock:
-            task = dict(self._find(task_no))
+            task = dict(find(self.tasks, task_no, '任务'))
         return 200, task, {'ETag': _etag(task)}
 
     def handover(self, request, task_no):
@@ -38,7 +44,7 @@ class Sap:
 
     def _act(self, request, task_no, allowed, status, **changes):
         with self.lock:
-            task = self._find(task_no)
+            task = find(self.tasks, task_no, '任务')
             if request.headers.get('If-Match') != _etag(task):
                 raise HttpError(412, f'任务 {task_no} 已经被改过，先重新读取拿到新的 ETag')
             if task['status'] != allowed:
@@ -48,11 +54,6 @@ class Sap:
             task = dict(task)
         log('SAP', f'任务 {task_no}：{before} -> {status}')
         return 200, task, {'ETag': _etag(task)}
-
-    def _find(self, task_no):
-        if task_no not in self.tasks:
-            raise HttpError(404, f'任务 {task_no} 不存在')
-        return self.tasks[task_no]
 
 
 def _etag(task):

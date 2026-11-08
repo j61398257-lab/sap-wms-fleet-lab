@@ -52,6 +52,12 @@ def call(method, url, body=None, headers=None):
         raise HttpError(error.code, message) from None
 
 
+def find(items, key, kind):
+    if key not in items:
+        raise HttpError(404, f'{kind} {key} 不存在')
+    return items[key]
+
+
 def log(system, message):
     stamp = datetime.now().strftime('%H:%M:%S.%f')[:-3]
     with _print_lock:
