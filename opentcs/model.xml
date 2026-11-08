@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model version="7.0.0" name="LabWarehouse">
+    <point name="Point-Inbound" positionX="8000" positionY="0" positionZ="0" vehicleOrientationAngle="NaN" type="HALT_POSITION">
+        <maxVehicleBoundingBox length="1000" width="1000" height="1000" referenceOffsetX="0" referenceOffsetY="0"/>
+        <outgoingPath name="Inbound-to-Park"/>
+        <outgoingPath name="Inbound-to-Pick"/>
+        <pointLayout labelOffsetX="0" labelOffsetY="0" layerId="0"/>
+    </point>
+    <point name="Point-Park" positionX="0" positionY="0" positionZ="0" vehicleOrientationAngle="NaN" type="HALT_POSITION">
+        <maxVehicleBoundingBox length="1000" width="1000" height="1000" referenceOffsetX="0" referenceOffsetY="0"/>
+        <outgoingPath name="Park-to-Inbound"/>
+        <pointLayout labelOffsetX="0" labelOffsetY="0" layerId="0"/>
+    </point>
+    <point name="Point-Pick" positionX="16000" positionY="0" positionZ="0" vehicleOrientationAngle="NaN" type="HALT_POSITION">
+        <maxVehicleBoundingBox length="1000" width="1000" height="1000" referenceOffsetX="0" referenceOffsetY="0"/>
+        <outgoingPath name="Pick-to-Inbound"/>
+        <pointLayout labelOffsetX="0" labelOffsetY="0" layerId="0"/>
+    </point>
+    <path name="Inbound-to-Park" sourcePoint="Point-Inbound" destinationPoint="Point-Park" length="8000" maxVelocity="1000" maxReverseVelocity="1000" locked="false">
+        <pathLayout connectionType="DIRECT" layerId="0"/>
+    </path>
+    <path name="Inbound-to-Pick" sourcePoint="Point-Inbound" destinationPoint="Point-Pick" length="8000" maxVelocity="1000" maxReverseVelocity="1000" locked="false">
+        <pathLayout connectionType="DIRECT" layerId="0"/>
+    </path>
+    <path name="Park-to-Inbound" sourcePoint="Point-Park" destinationPoint="Point-Inbound" length="8000" maxVelocity="1000" maxReverseVelocity="1000" locked="false">
+        <pathLayout connectionType="DIRECT" layerId="0"/>
+    </path>
+    <path name="Pick-to-Inbound" sourcePoint="Point-Pick" destinationPoint="Point-Inbound" length="8000" maxVelocity="1000" maxReverseVelocity="1000" locked="false">
+        <pathLayout connectionType="DIRECT" layerId="0"/>
+    </path>
+    <vehicle name="Vehicle-01" energyLevelCritical="15" energyLevelGood="40" energyLevelFullyRecharged="90" energyLevelSufficientlyRecharged="60" maxVelocity="1000" maxReverseVelocity="500" envelopeKey="">
+        <boundingBox length="1000" width="1000" height="1000" referenceOffsetX="0" referenceOffsetY="0"/>
+        <property name="loopback:initialPosition" value="Point-Park"/>
+        <property name="loopback:loadOperation" value="Load cargo"/>
+        <property name="loopback:operatingTime" value="1000"/>
+        <property name="loopback:unloadOperation" value="Unload cargo"/>
+        <vehicleLayout color="#00AA00"/>
+    </vehicle>
+    <locationType name="Transfer">
+        <allowedOperation name="Load cargo"/>
+        <allowedOperation name="Unload cargo"/>
+        <locationTypeLayout locationRepresentation="LOAD_TRANSFER_GENERIC"/>
+    </locationType>
+    <location name="Inbound" positionX="8000" positionY="2000" positionZ="0" locked="false" type="Transfer">
+        <link point="Point-Inbound">
+            <allowedOperation name="Load cargo"/>
+            <allowedOperation name="Unload cargo"/>
+        </link>
+        <locationLayout labelOffsetX="0" labelOffsetY="0" locationRepresentation="LOAD_TRANSFER_GENERIC" layerId="0"/>
+    </location>
+    <location name="Pick-01" positionX="16000" positionY="2000" positionZ="0" locked="false" type="Transfer">
+        <link point="Point-Pick">
+            <allowedOperation name="Load cargo"/>
+            <allowedOperation name="Unload cargo"/>
+        </link>
+        <locationLayout labelOffsetX="0" labelOffsetY="0" locationRepresentation="LOAD_TRANSFER_GENERIC" layerId="0"/>
+    </location>
+    <visualLayout name="Layout-01" scaleX="50.0" scaleY="50.0">
+        <layer id="0" ordinal="0" visible="true" name="Default" groupId="0"/>
+        <layerGroup id="0" name="Default" visible="true"/>
+    </visualLayout>
+</model>

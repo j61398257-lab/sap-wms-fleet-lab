@@ -1,0 +1,19 @@
+{
+  "name": "sap-mock",
+  "private": true,
+  "dependencies": {
+    "@sap/cds": "^10.2.2",
+    "@cap-js/sqlite": "^3.1.2"
+  },
+  "scripts": {
+    "start": "cds-serve"
+  },
+  "cds": {
+    "requires": {
+      "db": "sqlite:memory",
+      "auth": {
+        "kind": "dummy"
+      }
+    }
+  }
+}
