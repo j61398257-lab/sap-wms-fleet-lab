@@ -47,7 +47,8 @@ def call(method, url, body=None, headers=None):
         with _opener.open(request, timeout=5) as response:
             return _decode(response.read()), response.headers
     except HTTPError as error:
-        payload = _decode(error.read())
+        with error:
+            payload = _decode(error.read())
         message = payload.get('error') if isinstance(payload, dict) else payload
         raise HttpError(error.code, message) from None
 

@@ -63,7 +63,8 @@ class Bridge:
         self._sap_action(task_no, 'handover', {'externalRef': wms_order['id'], 'fleetOrder': fleet_order})
         self._note(f'等待车队完成运输订单 {fleet_order}')
         while call('GET', f'{self.fleet}/transport-orders/{fleet_order}')[0]['state'] != 'FINISHED':
-            self.stopped.wait(self.poll_seconds)
+            if self.stopped.wait(self.poll_seconds):
+                return
         self._wms_state(wms_order['id'], 'FINISHED')
         self._sap_action(task_no, 'confirm', {'actualQty': task['qty']})
         self._note(f'任务 {task_no} 搬运完成，结果已回写 SAP')
