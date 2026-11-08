@@ -51,9 +51,9 @@
 docker compose -f compose.yaml -f compose.ghcr.yaml up -d
 ```
 
-`compose.ghcr.yaml` 把每个服务换成 `ghcr.io` 上的镜像，本机不再构建，大约下载 1 GB。
+`compose.ghcr.yaml` 把每个服务换成 `ghcr.io` 上的镜像，本机不再构建，大约下载 650 MB。
 
-**离线导入。** 在 [Releases](https://github.com/j61398257-lab/sap-wms-fleet-lab/releases/latest) 页面下载 `sap-wms-fleet-lab-images.tar.gz`，这是同样 8 个镜像打成的一个文件。可以在能上网的电脑下载后拷过来，放进仓库目录，执行：
+**离线导入。** 在 [Releases](https://github.com/j61398257-lab/sap-wms-fleet-lab/releases/latest) 页面下载 `sap-wms-fleet-lab-images.tar.gz`（约 640 MB），这是同样 8 个镜像打成的一个文件。可以在能上网的电脑下载后拷过来，放进仓库目录，执行：
 
 ```powershell
 docker load -i sap-wms-fleet-lab-images.tar.gz
