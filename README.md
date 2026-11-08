@@ -2,14 +2,14 @@
 
 这条环境用来看清一笔搬运任务怎么从 SAP 下达到仓库，再交给车队执行，最后把结果写回去。车辆不会真的动，openTCS 的 Loopback 驱动会按路线走完并回报状态。
 
-仓库里有两套：完整版用真实的 SAP CAP、OpenWMS 和 openTCS，按下面的「运行」启动；简化版在 `python/` 目录，用 Python 标准库把同一条链路写成五个小服务，见「Python 简化版」。
+仓库里有两套链路，由下面这一条命令一起启动。完整版用真实的 SAP CAP、OpenWMS 和 openTCS。简化版在 `python/` 目录，用 Python 标准库写成五个小服务，放在同一个容器里跑。
 
 ## 运行
 
-只需要 Docker Desktop，不用装 Java 或 Node。
+只需要 Docker Desktop，不用装 Java、Node 或 Python。
 
 1. 安装并启动 Docker Desktop。电脑要是 64 位 x86，ARM 版 Windows 不行，OpenWMS 镜像只有 amd64。内存 8 GB 够用，磁盘留 5 GB 以上。
-2. 下载代码，不用登录 GitHub。在仓库页面点 **Code → Download ZIP** 并解压，或者在 PowerShell 里执行：
+2. 下载代码，不用登录 GitHub。在 PowerShell 里执行：
 
    ```powershell
    curl.exe -L -o sap-wms-fleet-lab.zip https://github.com/j61398257-lab/sap-wms-fleet-lab/archive/refs/heads/main.zip
@@ -17,14 +17,18 @@
    cd sap-wms-fleet-lab-main
    ```
 
-3. 在解压出来的目录里打开 PowerShell，执行：
+   也可以在仓库页面点 **Code → Download ZIP**，解压后进入 `sap-wms-fleet-lab-main`。
+3. 启动全部容器，包含完整版和 Python 简化版：
 
    ```powershell
    docker compose up --build -d
    ```
 
    第一次要下载镜像并构建，需要几分钟。
-4. 浏览器打开 <http://localhost:8090/status>，出现「搬运完成，状态已回到 SAP」就是跑通了。也可以打开 <http://localhost:4004/odata/v4/task/Tasks>，任务 `1000000001` 的 `status` 是 `CONFIRMED`。
+4. 两条链路都要看到确认才算跑通。
+
+   - 完整版：打开 <http://localhost:8090/status>，出现「搬运完成，状态已回到 SAP」。<http://localhost:4004/odata/v4/task/Tasks> 里任务 `1000000001` 的 `status` 是 `CONFIRMED`。完整版大约需要一分钟。
+   - Python 简化版：打开 <http://localhost:9004/tasks>，同一任务号的 `status` 是 `CONFIRMED`，托盘位置看 <http://localhost:9120/transport-units/00000000000000004711>，应在 `FGIN/PICK/WORK/0001/0000`。这一套大约 5 秒。
 
 停掉用 `docker compose down`。数据都在内存里，再次 `docker compose up -d` 会从预制任务重新跑。
 
@@ -61,25 +65,15 @@ Invoke-RestMethod -Method Post -Uri 'http://localhost:4004/odata/v4/task/Tasks(7
 
 ## Python 简化版
 
-`python/` 目录用 Python 标准库把同一条链路写成五个小服务，只演示正常完成。不用 Java、Node，也不用下载 OpenWMS 和 openTCS，几秒就能跑完。接口是简化过的，路径和字段不等于真实的 OData、OpenWMS、openTCS 接口。
+`python/` 目录用 Python 标准库把同一条链路写成五个小服务，只演示正常完成。上面的 `docker compose up --build -d` 已经把它放进 `python-chain` 容器，不要再在本机执行 `python -m chain`，端口会冲突。接口是简化过的，路径和字段不等于真实的 OData、OpenWMS、openTCS 接口。
 
-两种启动方式，任选一种：
+容器日志里按时间打印每个系统的状态变化：
 
-- 装了 Python 3.10 以上：
+```powershell
+docker compose logs python-chain
+```
 
-  ```powershell
-  cd python
-  python -m chain
-  ```
-
-- 只装了 Docker：
-
-  ```powershell
-  cd python
-  docker compose up --build
-  ```
-
-控制台会按时间打印每个系统的状态变化，大约 5 秒后出现「任务 1000000001 搬运完成，结果已回写 SAP」。Ctrl+C 停止；Docker 方式加 `-d` 在后台跑时，用 `docker compose down` 停止。运行中可以在浏览器打开：
+大约 5 秒后出现「任务 1000000001 搬运完成，结果已回写 SAP」。运行中可以在浏览器打开：
 
 | 系统 | 地址 |
 | --- | --- |
@@ -99,11 +93,11 @@ Invoke-RestMethod -Method Post -Uri 'http://localhost:4004/odata/v4/task/Tasks(7
 | Loopback 驱动 | `chain/vehicle.py`：沿路线每走一步、每做完一个动作就向车队回报 |
 | `bridge/index.js` | `chain/bridge.py`：轮询 `RELEASED` 任务，依次在 WMS、车队下单，最后回写 SAP |
 
-测试在 `python` 目录里执行 `python -m unittest -b`，只装了 Docker 就用 `docker compose run --rm chain python -m unittest -b`。端口 `9004`、`9120`、`9200`、`9300`、`9090` 不能被占用，和完整版的端口错开，两套可以同时开着对照。
+只想看 Python 源码、不启动完整版时，在 `python` 目录执行 `python -m chain`（需要 Python 3.10 以上）。这和根目录那条命令二选一。测试在 `python` 目录里执行 `python -m unittest -b`。
 
 ## 注意
 
 - 仓库里只有自己写的源码，`@sap/cds` 在构建时从 npm 下载，下载的人各自接受 SAP 开发者许可，所以仓库可以公开。不要提交 `node_modules`，也不要把打好的 `sap` 镜像推到公开镜像仓库或附在 Release 里：这个许可不允许把 SAP 的软件转给第三方。
 - 第一次构建要访问 Docker Hub、npm 和 GitHub（下载 openTCS 7.5.0）。拉镜像卡住时，在 Docker Desktop 的设置里配置代理或镜像加速。
-- 端口 `4004`、`8090`、`8120`、`8131`、`55200` 不能被别的程序占用。
+- 端口 `4004`、`8090`、`8120`、`8131`、`55200`、`9004`、`9090`、`9120`、`9200`、`9300` 不能被别的程序占用。
 - Docker 的虚拟磁盘默认在 C 盘。C 盘空间不多时，先在 Docker Desktop 的 **Settings → Resources → Advanced** 里把磁盘位置改到 D 盘。

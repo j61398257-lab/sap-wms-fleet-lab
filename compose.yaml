@@ -66,3 +66,16 @@ services:
       - openwms-common
       - openwms-tms
       - opentcs
+
+  python-chain:
+    build: ./python
+    init: true
+    restart: on-failure
+    environment:
+      TZ: Asia/Shanghai
+    ports:
+      - "9004:9004"
+      - "9120:9120"
+      - "9200:9200"
+      - "9300:9300"
+      - "9090:9090"
