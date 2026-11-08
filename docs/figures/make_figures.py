@@ -1,8 +1,12 @@
-"""生成接口总览、调用时序和确认校验三张图，输出 PDF、SVG 和 600 dpi PNG。
+"""生成接口总览、调用时序、确认校验、架构原理和运行状态五张图，输出 PDF、SVG 和 600 dpi PNG。
+
+运行状态图读取同目录的 run_trace.json，由 record_run.py 在一次真实运行中采集。
 
 用法：python make_figures.py [zh|en]，不带参数时两种语言都生成。
 """
+import json
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import matplotlib
@@ -467,6 +471,295 @@ def figure_confirm():
     save(fig, 'fig3_confirm')
 
 
+# ---------------------------------------------------------------- 图 4
+
+def figure_architecture():
+    W, H = 180, 146
+    fig, ax = canvas(W, H)
+    panel(ax, 1.5, 2, 'a')
+    text(ax, 6, 4.6, T('分层结构：指令逐层向下细化，状态逐层向上汇报', 'Layers: commands are refined downwards, states reported upwards'),
+         size=7, weight='bold')
+
+    layers = [
+        (9, 16, SAP, T('L4 业务计划', 'L4 business\nplanning'), 'SAP S/4HANA EWM',
+         T('决定搬什么、搬多少、从哪到哪', 'decides what, how many, from where to where')),
+        (29, 11, BRIDGE, T('集成层', 'integration'), T('桥接 bridge', 'Bridge'),
+         T('轮询 · 换算名字 · 关联单号 · 回写确认', 'poll · translate names · correlate IDs · confirm')),
+        (44, 16, WMS, T('L3 仓储执行', 'L3 warehouse\nexecution'), 'OpenWMS Common + TMS',
+         T('管库位、托盘和运输单', 'locations, pallets, transport orders')),
+        (64, 16, TCS, T('L2 调度控制', 'L2 fleet\ncontrol'), T('openTCS 内核', 'openTCS kernel'),
+         T('分配车辆、规划路线、拆成行驶段', 'assigns vehicles, routes, drive orders')),
+        (84, 14, CAR, T('L1 设备', 'L1 device'), 'Vehicle-01 (Loopback)',
+         T('按段行驶，回报位置和动作', 'drives segments, reports position')),
+    ]
+    for y, h, color, level, name, role in layers:
+        text(ax, 5, y + h / 2, level, size=6.2, weight='bold', color=color)
+        box(ax, 30, y, 58, h, fc=tint(color, 0.88), ec=color, lw=0.8)
+        ax.add_patch(Rectangle((30.4, y + 0.4), 1.3, h - 0.8, fc=color, ec='none', zorder=3))
+        text(ax, 33.5, y + h / 2 - 2, name, size=6.8, weight='bold')
+        text(ax, 33.5, y + h / 2 + 2.2, role, size=5.6, color=GREY)
+    for (y1, h1, *_), (y2, *_rest) in zip(layers, layers[1:]):
+        arrow(ax, 52, y1 + h1, 52, y2, color=INK)
+        arrow(ax, 68, y2, 68, y1 + h1, color=GREY, dashed=True)
+    text(ax, 50.5, 26.8, T('指令', 'command'), size=5.2, ha='right', color=INK)
+    text(ax, 69.5, 26.8, T('状态', 'state'), size=5.2, color=GREY)
+
+    # 右侧：同一笔搬运在每一层变成什么对象
+    text(ax, 96, 9.5, T('同一笔搬运在每层的对象（任务 1000000001）', 'The same move at each layer (task 1000000001)'),
+         size=6.2, weight='bold')
+    objects = [
+        (13, SAP, 'WarehouseTask 1000000001', "MAT-100 × 1 EA · IPNT-01 → PICK-01 · WarehouseOrder 2000000001"),
+        (31, BRIDGE, 'links[1000000001]', T('{ wms: <UUID>, fleet: SAP-1000000001 } · 仓位对照表 bins', '{ wms: <UUID>, fleet: SAP-1000000001 } · bin table')),
+        (48, WMS, 'TransportOrder <UUID>', 'TU …4711 · FGIN/IPNT/0001/0000/0000 → FGIN/PICK/WORK/0001/0000'),
+        (68, TCS, 'TransportOrder SAP-1000000001', T('Inbound: Load cargo → Pick-01: Unload cargo；拆成 2 个行驶段', 'Inbound: Load cargo → Pick-01: Unload cargo; 2 drive orders')),
+        (87, CAR, T('行驶段', 'drive orders'), 'Point-Park → Point-Inbound → Point-Pick'),
+    ]
+    for y, color, title, detail in objects:
+        box(ax, 96, y, 80, 9, fc='white', ec=color, lw=0.6, r=0.6)
+        text(ax, 98, y + 2.8, title, size=6, weight='bold', mono=True, color=color)
+        text(ax, 98, y + 6.3, detail, size=5.2, mono=True, color=INK)
+        arrow(ax, 88, y + 4.5, 96, y + 4.5, color=LINE)
+    text(ax, 96, 100, T('越往下越具体：业务数量 → 托盘与库位 → 位置与动作 → 路线上的点。',
+                        'Lower layers are more concrete: quantities → pallets/locations → stations → route points.'),
+         size=5.4, color=GREY)
+
+    # ---- b 名字和状态的换算
+    top = 106
+    panel(ax, 1.5, top, 'b')
+    text(ax, 6, top + 2.6, T('桥接维护的两张对照', 'Two mappings kept by the bridge'), size=7, weight='bold')
+
+    def table(x, y, widths, header, rows, colors):
+        cx = [x]
+        for w in widths:
+            cx.append(cx[-1] + w)
+        ax.plot([x, cx[-1]], [y, y], color=INK, lw=0.8)
+        for i, name in enumerate(header):
+            text(ax, cx[i] + 1, y + 2.4, name, size=5.8, weight='bold')
+        ax.plot([x, cx[-1]], [y + 4.6, y + 4.6], color=INK, lw=0.5)
+        yy = y + 4.6
+        for row, color in zip(rows, colors):
+            ax.add_patch(Rectangle((x, yy), 1.0, 5.6, fc=color, ec='none', zorder=2))
+            for i, cell in enumerate(row):
+                text(ax, cx[i] + (2 if i == 0 else 1), yy + 2.8, cell, size=5.3, mono=i > 0)
+            yy += 5.6
+            ax.plot([x, cx[-1]], [yy, yy], color='#DDDDDD', lw=0.3)
+        ax.plot([x, cx[-1]], [yy, yy], color=INK, lw=0.8)
+
+    table(4, top + 6, [16, 26, 24, 22],
+          [T('层', 'Layer'), T('单号', 'Identifier'), T('源', 'Source'), T('目标', 'Target')],
+          [['SAP', '1000000001', 'IPNT-01', 'PICK-01'],
+           ['OpenWMS', T('<UUID，每次不同>', '<UUID, per run>'), 'FGIN/IPNT/0001/…', 'FGIN/PICK/WORK/…'],
+           ['openTCS', 'SAP-1000000001', 'Inbound', 'Pick-01'],
+           [T('车辆', 'Vehicle'), 'Vehicle-01', 'Point-Inbound', 'Point-Pick']],
+          [SAP, WMS, TCS, CAR])
+    table(96, top + 6, [12, 10, 19, 27, 12],
+          [T('阶段', 'Stage'), 'SAP', 'OpenWMS', 'openTCS', T('车辆', 'Vehicle')],
+          [[T('等待', 'waiting'), "''", '—', '—', 'IDLE'],
+           [T('执行', 'running'), "''", 'STARTED', 'BEING_PROCESSED', 'EXEC.'],
+           [T('完成', 'done'), "'C'", 'FINISHED', 'FINISHED', 'IDLE'],
+           [T('取消', 'cancel'), "'A'", 'CANCELED', T('FAILED（撤回）', 'FAILED (withdrawn)'), '—']],
+          [LINE, BRIDGE, WMS, GREY])
+    text(ax, 4, H - 3.6, T("SAP 仓库任务只有 ''、'C'、'A' 三种状态，车辆执行期间 SAP 仍是未清；执行中这一段只能在下游看到。"
+                           "层级划分参照 ISA-95。",
+                           "An EWM warehouse task is only '', 'C' or 'A'; while the vehicle runs SAP stays open, "
+                           "so progress is visible only downstream. Levels follow ISA-95."),
+         size=5.4, color=GREY)
+    save(fig, 'fig4_architecture')
+
+
+# ---------------------------------------------------------------- 图 5
+
+WAITING = {'', 'RAW', 'DISPATCHABLE', 'PRISTINE', 'IDLE', 'CREATED', 'RELEASED'}
+ACTIVE = {'STARTED', 'BEING_PROCESSED', 'TRAVELLING', 'EXECUTING', 'IN_PROCESS'}
+DONE = {'C', 'FINISHED', 'CONFIRMED'}
+FILL = {'absent': '#F2F2F2', 'waiting': '#D6E4F0', 'active': '#F7C873', 'done': '#9AD7BF', 'up': '#C9C9C9'}
+PLACES = {'Point-Park': ('#E4E4E4', 'Park'), 'Point-Inbound': (tint(SAP, 0.6), 'Inbound'),
+          'Point-Pick': (tint(WMS, 0.5), 'Pick')}
+
+
+def segments(samples, chain, key):
+    out = []
+    for i, sample in enumerate(samples):
+        t = sample[chain]['t']
+        value = sample[chain][key]
+        if isinstance(value, list):
+            value = tuple(value)
+        if out and out[-1][2] == value:
+            continue
+        if out:
+            out[-1][1] = t
+        out.append([t, None, value])
+    if out:
+        out[-1][1] = samples[-1][chain]['t']
+    return out
+
+
+def style(kind, value):
+    if kind == 'up':
+        return ('up', T('可用', 'up')) if value else ('absent', '')
+    if kind == 'place':
+        if value in PLACES:
+            return PLACES[value]
+        return 'absent', ''
+    if kind == 'pallet':
+        if not value:
+            return 'absent', ''
+        return ('waiting', 'IPNT') if 'IPNT' in value else ('done', 'PICK')
+    if value is None:
+        return 'absent', ''
+    label = T("未清 ''", "open ''") if value == '' else str(value)
+    if value in DONE:
+        return 'done', label
+    if value in ACTIVE:
+        return 'active', label
+    return 'waiting', label
+
+
+def timeline(ax, samples, chain, lanes, x0, x1, y, tmax, ticks, events, lane_h=4.2):
+    scale = (x1 - x0) / tmax
+    for i, (name, key, kind) in enumerate(lanes):
+        yy = y + i * (lane_h + 1.0)
+        text(ax, x0 - 1.5, yy + lane_h / 2, name, size=5.6, ha='right')
+        if kind.startswith('dest'):
+            index = int(kind[-1])
+            data = [[a, b, (v[index] if v and len(v) > index else None)] for a, b, v in segments(samples, chain, key)]
+            merged = []
+            for seg in data:
+                if merged and merged[-1][2] == seg[2]:
+                    merged[-1][1] = seg[1]
+                else:
+                    merged.append(seg)
+            data, kind = merged, 'state'
+        else:
+            data = segments(samples, chain, key)
+        for a, b, value in data:
+            color, label = style(kind, value)
+            fill = FILL.get(color, color)
+            xa, xb = x0 + a * scale, x0 + min(b, tmax) * scale
+            if xb <= xa:
+                continue
+            ax.add_patch(Rectangle((xa, yy), xb - xa, lane_h, fc=fill, ec='white', lw=0.3,
+                                   hatch='/////' if color == 'absent' else None, zorder=2))
+            if label and (xb - xa) > len(label) * 1.05 + 1:
+                text(ax, (xa + xb) / 2, yy + lane_h / 2, label, size=5.0, ha='center', mono=True, z=4)
+    bottom = y + len(lanes) * (lane_h + 1.0)
+    ax.plot([x0, x1], [bottom, bottom], color=INK, lw=0.6)
+    for tick in ticks:
+        x = x0 + tick * scale
+        ax.plot([x, x], [bottom, bottom + 1], color=INK, lw=0.6)
+        text(ax, x, bottom + 2.6, f'{tick:g}', size=5.6, ha='center')
+    text(ax, (x0 + x1) / 2, bottom + 6, T('自 docker compose up 起的时间 (s)', 'time since docker compose up (s)'),
+         size=5.8, ha='center')
+    for t, label, row in events:
+        x = x0 + t * scale
+        ax.plot([x, x], [y - 1.5 - row * 3.2, bottom], color=INK, lw=0.45, ls=(0, (2, 1.5)), zorder=5)
+        text(ax, x, y - 2.6 - row * 3.2, label, size=5.2, ha='center', bg='white', z=6)
+    return bottom
+
+
+def first(samples, chain, key, predicate):
+    return next(s[chain]['t'] for s in samples if predicate(s[chain][key]))
+
+
+def figure_run_state():
+    data = json.loads((OUT / 'run_trace.json').read_text(encoding='utf-8'))
+    samples = data['samples']
+    W, H = 180, 181
+    fig, ax = canvas(W, H)
+
+    full_lanes = [
+        ('SAP', 'sapUp', 'up'),
+        ('openTCS', 'tcsUp', 'up'),
+        ('OpenWMS TMS', 'tmsUp', 'up'),
+        ('OpenWMS Common', 'commonUp', 'up'),
+        (T('SAP 仓库任务', 'SAP warehouse task'), 'sap', 'state'),
+        (T('SAP 仓库单', 'SAP warehouse order'), 'order', 'state'),
+        (T('WMS 运输单', 'WMS transport order'), 'wms', 'state'),
+        (T('托盘位置', 'pallet location'), 'pallet', 'pallet'),
+        (T('车队订单', 'fleet order'), 'fleet', 'state'),
+        (T('路段 1 Inbound 装货', 'leg 1 Inbound load'), 'destinations', 'dest0'),
+        (T('路段 2 Pick-01 卸货', 'leg 2 Pick-01 unload'), 'destinations', 'dest1'),
+        (T('车辆状态', 'vehicle state'), 'vehicle', 'state'),
+        (T('车辆位置', 'vehicle position'), 'position', 'place'),
+    ]
+    full = 'full'
+    t_ready = max(first(samples, full, k, bool) for k in ('sapUp', 'tcsUp', 'tmsUp', 'commonUp'))
+    t_exec = first(samples, full, 'fleet', lambda v: v == 'BEING_PROCESSED')
+    t_in = first(samples, full, 'position', lambda v: v == 'Point-Inbound')
+    t_pick = first(samples, full, 'position', lambda v: v == 'Point-Pick')
+    t_conf = first(samples, full, 'sap', lambda v: v == 'C')
+    tmax_full = samples[-1][full]['t']
+    panel(ax, 1.5, 2, 'a')
+    text(ax, 6, 4.6, T('完整版：SAP CAP（EWM 标准接口）+ OpenWMS + openTCS', 'Full stack: SAP CAP (EWM API) + OpenWMS + openTCS'),
+         size=7, weight='bold')
+    bottom = timeline(ax, samples, full, full_lanes, 40, 176, 17, tmax_full, range(0, int(tmax_full) + 1, 5), [
+        (t_ready, T(f'服务全部可用 {t_ready:.1f}', f'all up {t_ready:.1f}'), 0),
+        (t_exec, T(f'开始执行 {t_exec:.1f}', f'executing {t_exec:.1f}'), 1),
+        (t_in, T(f'到 Inbound {t_in:.1f}', f'at Inbound {t_in:.1f}'), 0),
+        (t_pick, T(f'到 Pick {t_pick:.1f}', f'at Pick {t_pick:.1f}'), 1),
+        (t_conf, T(f'SAP 确认 {t_conf:.1f}', f'SAP confirmed {t_conf:.1f}'), 2),
+    ])
+    text(ax, 38.5, 17 - 1.8, T('服务可用', 'service up'), size=5.2, ha='right', color=GREY)
+
+    py_lanes = [
+        (T('SAP 任务', 'SAP task'), 'sap', 'state'),
+        (T('WMS 运输单', 'WMS transport order'), 'wms', 'state'),
+        (T('托盘位置', 'pallet location'), 'pallet', 'pallet'),
+        (T('车队订单', 'fleet order'), 'fleet', 'state'),
+        (T('路段 1 Inbound 装货', 'leg 1 Inbound load'), 'destinations', 'dest0'),
+        (T('路段 2 Pick-01 卸货', 'leg 2 Pick-01 unload'), 'destinations', 'dest1'),
+        (T('车辆状态', 'vehicle state'), 'vehicle', 'state'),
+        (T('车辆位置', 'vehicle position'), 'position', 'place'),
+    ]
+    py = 'python'
+    py_in = first(samples, py, 'position', lambda v: v == 'Point-Inbound')
+    py_pick = first(samples, py, 'position', lambda v: v == 'Point-Pick')
+    py_conf = first(samples, py, 'sap', lambda v: v == 'CONFIRMED')
+    top = bottom + 13
+    panel(ax, 1.5, top - 2, 'b')
+    text(ax, 6, top + 0.6, T('Python 简化版（同一次 docker compose up）', 'Python simplified chain (same docker compose up)'),
+         size=7, weight='bold')
+    py_tmax = py_conf + 1.5
+    bottom = timeline(ax, samples, py, py_lanes, 40, 176, top + 13, py_tmax, range(0, int(py_tmax) + 1, 1), [
+        (py_in, T(f'到 Inbound {py_in:.1f}', f'at Inbound {py_in:.1f}'), 0),
+        (py_pick, T(f'到 Pick {py_pick:.1f}', f'at Pick {py_pick:.1f}'), 1),
+        (py_conf, T(f'确认 {py_conf:.1f}', f'confirmed {py_conf:.1f}'), 0),
+    ])
+
+    # 图例
+    y = bottom + 10
+    items = [('absent', T('不可达或未创建', 'unreachable / absent')), ('up', T('服务可用', 'service up')),
+             ('waiting', T('等待', 'waiting')), ('active', T('执行中', 'running')), ('done', T('完成', 'done'))]
+    x = 40
+    for key, label in items:
+        ax.add_patch(Rectangle((x, y - 1.6), 5, 3.2, fc=FILL[key], ec='#BBBBBB', lw=0.3,
+                               hatch='/////' if key == 'absent' else None))
+        text(ax, x + 6.2, y, label, size=5.6)
+        x += 6.2 + len(label) * (2.1 if LANG == 'zh' else 1.05) + 4
+    x = 40
+    y += 5
+    for point, (color, label) in PLACES.items():
+        ax.add_patch(Rectangle((x, y - 1.6), 5, 3.2, fc=color, ec='#BBBBBB', lw=0.3))
+        text(ax, x + 6.2, y, point, size=5.6, mono=True)
+        x += 30
+    journal = data['journals']['full']
+    stamps = {e['message']: e['at'] for e in journal}
+    taken = datetime.fromisoformat(next(v for k, v in stamps.items() if k.startswith('接手')).replace('Z', '+00:00'))
+    confirmed = datetime.fromisoformat(next(v for k, v in stamps.items() if k.startswith('搬运完成')).replace('Z', '+00:00'))
+    span = (confirmed - taken).total_seconds()
+    gaps = [b[full]['t'] - a[full]['t'] for a, b in zip(samples, samples[1:])]
+    text(ax, 4, y + 6.5, T(f'数据：docs/figures/run_trace.json，{data["meta"]["startedAt"]} 开始的一次运行，共 {len(samples)} 次采样，'
+                           f'间隔中位数 {sorted(gaps)[len(gaps) // 2]:.1f} s、最大 {max(gaps):.1f} s。',
+                           f'Data: docs/figures/run_trace.json, run started {data["meta"]["startedAt"]}, {len(samples)} samples, '
+                           f'median interval {sorted(gaps)[len(gaps) // 2]:.1f} s, max {max(gaps):.1f} s.'),
+         size=5.4, color=GREY)
+    text(ax, 4, y + 10.3, T(f'完整版桥接日志：接手任务到 SAP 确认 {span:.1f} s。Python 版在第一次采样前已完成接手，所以 SAP 一出现就是 IN_PROCESS。',
+                           f'Bridge journal (full stack): task taken to SAP confirmation {span:.1f} s. '
+                           'The Python bridge took the task before the first sample, hence IN_PROCESS from the start.'),
+         size=5.4, color=GREY)
+    save(fig, 'fig5_run_state')
+
+
 def main():
     global LANG
     langs = sys.argv[1:] or ['zh', 'en']
@@ -475,6 +768,8 @@ def main():
         figure_interfaces()
         figure_sequence()
         figure_confirm()
+        figure_architecture()
+        figure_run_state()
         print(f'{lang}: {OUT}')
 
 

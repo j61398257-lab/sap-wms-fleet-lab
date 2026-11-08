@@ -2,7 +2,19 @@
 
 这条环境用来看清一笔搬运任务怎么从 SAP 下达到仓库，再交给车队执行，最后把结果写回去。车辆不会真的动，openTCS 的 Loopback 驱动会按路线走完并回报状态。
 
-仓库里有两套链路，由下面这一条命令一起启动。完整版用真实的 SAP CAP、OpenWMS 和 openTCS。简化版在 `python/` 目录，用 Python 标准库写成五个小服务，放在同一个容器里跑。架构和任务 `1000000001` 的逐步对应见 [架构.md](架构.md)。完整版的 SAP 按 EWM 标准接口 `API_WAREHOUSE_ORDER_TASK_2` 模拟，学习这个接口见 [SAP标准接口.md](SAP标准接口.md)，接口清单和调用时序图在 `docs/figures/`。
+仓库里有两套链路，由下面这一条命令一起启动。完整版用真实的 SAP CAP、OpenWMS 和 openTCS。简化版在 `python/` 目录，用 Python 标准库写成五个小服务，放在同一个容器里跑。架构和任务 `1000000001` 的逐步对应见 [架构.md](架构.md)。完整版的 SAP 按 EWM 标准接口 `API_WAREHOUSE_ORDER_TASK_2` 模拟，学习这个接口见 [SAP标准接口.md](SAP标准接口.md)。
+
+`docs/figures/` 里有五张图，每张都有中英文两版的 PDF、SVG 和 600 dpi PNG，由 `make_figures.py` 生成：
+
+| 图 | 内容 | 在哪篇文档里讲 |
+| --- | --- | --- |
+| `fig1_interfaces` | 系统与接口总览、23 个接口清单 | [SAP标准接口.md](SAP标准接口.md) |
+| `fig2_sequence` | 任务 1000000001 的调用时序 | [SAP标准接口.md](SAP标准接口.md) |
+| `fig3_confirm` | 确认请求的校验链、仓库任务和仓库单的状态 | [SAP标准接口.md](SAP标准接口.md) |
+| `fig4_architecture` | 分层架构原理、单号和状态的换算 | [架构.md](架构.md) |
+| `fig5_run_state` | 一次真实运行中各系统状态随时间的变化，数据在 `run_trace.json` | [架构.md](架构.md) |
+
+`board_snapshot.png` 是同一次运行结束时调度板的截图。
 
 ## 运行
 

@@ -6,7 +6,7 @@
 
 ## 图
 
-三张图都在 `docs/figures/`，每张有 PDF、SVG 和 600 dpi PNG，中文版文件名以 `_zh` 结尾，英文版以 `_en` 结尾。改了接口以后，在该目录执行 `python make_figures.py` 重新生成（需要 matplotlib）。
+下面三张图在 `docs/figures/`（架构原理图和实际运行状态图见 [架构.md](架构.md)），每张有 PDF、SVG 和 600 dpi PNG，中文版文件名以 `_zh` 结尾，英文版以 `_en` 结尾。改了接口以后，在该目录执行 `python make_figures.py` 重新生成（需要 matplotlib）。
 
 **图 1 系统与接口总览。** a 是各系统和它们之间的接口编号，b 是每个编号对应的方法、路径和用途。
 
