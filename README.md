@@ -2,13 +2,22 @@
 
 这条环境用来看清一笔搬运任务怎么从 SAP 下达到仓库，再交给车队执行，最后把结果写回去。车辆不会真的动，openTCS 的 Loopback 驱动会按路线走完并回报状态。
 
+仓库里有两套：完整版用真实的 SAP CAP、OpenWMS 和 openTCS，按下面的「运行」启动；简化版在 `python/` 目录，用 Python 标准库把同一条链路写成五个小服务，见「Python 简化版」。
+
 ## 运行
 
 只需要 Docker Desktop，不用装 Java 或 Node。
 
 1. 安装并启动 Docker Desktop。电脑要是 64 位 x86，ARM 版 Windows 不行，OpenWMS 镜像只有 amd64。内存 8 GB 够用，磁盘留 5 GB 以上。
-2. 在 GitHub 仓库页面点 **Code → Download ZIP** 并解压，或者 `git clone`。
-3. 在这个目录里打开 PowerShell，执行：
+2. 下载代码，不用登录 GitHub。在仓库页面点 **Code → Download ZIP** 并解压，或者在 PowerShell 里执行：
+
+   ```powershell
+   curl.exe -L -o sap-wms-fleet-lab.zip https://github.com/j61398257-lab/sap-wms-fleet-lab/archive/refs/heads/main.zip
+   tar -xf sap-wms-fleet-lab.zip
+   cd sap-wms-fleet-lab-main
+   ```
+
+3. 在解压出来的目录里打开 PowerShell，执行：
 
    ```powershell
    docker compose up --build -d
@@ -49,6 +58,48 @@ Invoke-RestMethod -Method Post -Uri 'http://localhost:4004/odata/v4/task/Tasks(7
 源仓位 `IPNT-01` 对应 OpenWMS 的 `FGIN/IPNT/0001/0000/0000`，目标仓位 `PICK-01` 对应 `FGIN/PICK/WORK/0001/0000`。
 
 `common-compat` 夹在 OpenWMS 的两个服务之间。TMS 2.0 查库位组时只认单个对象，Common 3.0 不带名字时返回数组，它把数组取成一个对象。
+
+## Python 简化版
+
+`python/` 目录用 Python 标准库把同一条链路写成五个小服务，只演示正常完成。不用 Java、Node，也不用下载 OpenWMS 和 openTCS，几秒就能跑完。接口是简化过的，路径和字段不等于真实的 OData、OpenWMS、openTCS 接口。
+
+两种启动方式，任选一种：
+
+- 装了 Python 3.10 以上：
+
+  ```powershell
+  cd python
+  python -m chain
+  ```
+
+- 只装了 Docker：
+
+  ```powershell
+  cd python
+  docker compose up --build
+  ```
+
+控制台会按时间打印每个系统的状态变化，大约 5 秒后出现「任务 1000000001 搬运完成，结果已回写 SAP」。Ctrl+C 停止；Docker 方式加 `-d` 在后台跑时，用 `docker compose down` 停止。运行中可以在浏览器打开：
+
+| 系统 | 地址 |
+| --- | --- |
+| SAP 任务 | <http://localhost:9004/tasks> |
+| WMS 运输单 | <http://localhost:9120/transport-orders> |
+| 车队运输订单 | <http://localhost:9200/transport-orders> |
+| 车辆 | <http://localhost:9300/state> |
+| 桥接日志 | <http://localhost:9090/status> |
+
+和完整版的对应关系：
+
+| 完整版 | 简化版 |
+| --- | --- |
+| SAP CAP | `chain/sap.py`：任务带版本号，动作要带 If-Match，版本不对返回 412，状态不对返回 409 |
+| OpenWMS Common + TMS | `chain/wms.py`：托盘和运输单，运输单完成时托盘移到目标库位 |
+| openTCS 内核 | `chain/fleet.py`：运输订单分配给空闲车辆，按路线拆成一段段行驶任务下发 |
+| Loopback 驱动 | `chain/vehicle.py`：沿路线每走一步、每做完一个动作就向车队回报 |
+| `bridge/index.js` | `chain/bridge.py`：轮询 `RELEASED` 任务，依次在 WMS、车队下单，最后回写 SAP |
+
+测试在 `python` 目录里执行 `python -m unittest -b`，只装了 Docker 就用 `docker compose run --rm chain python -m unittest -b`。端口 `9004`、`9120`、`9200`、`9300`、`9090` 不能被占用，和完整版的端口错开，两套可以同时开着对照。
 
 ## 注意
 
