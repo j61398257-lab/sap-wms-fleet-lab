@@ -2,7 +2,7 @@
 
 这条环境用来看清一笔搬运任务怎么从 SAP 下达到仓库，再交给车队执行，最后把结果写回去。车辆不会真的动，openTCS 的 Loopback 驱动会按路线走完并回报状态。
 
-仓库里有两套链路，由下面这一条命令一起启动。完整版用真实的 SAP CAP、OpenWMS 和 openTCS。简化版在 `python/` 目录，用 Python 标准库写成五个小服务，放在同一个容器里跑。架构和任务 `1000000001` 的逐步对应见 [架构.md](架构.md)。完整版的 SAP 按 EWM 标准接口 `API_WAREHOUSE_ORDER_TASK_2` 模拟，学习这个接口见 [SAP标准接口.md](SAP标准接口.md)。
+仓库里有两套链路，由下面这一条命令一起启动。完整版用真实的 SAP CAP、OpenWMS 和 openTCS。简化版在 `python/` 目录，用 Python 标准库写成五个小服务，放在同一个容器里跑。架构和任务 `1000000001` 的逐步对应见 [架构.md](架构.md)。完整版的 SAP 按 EWM 标准接口 `API_WAREHOUSE_ORDER_TASK_2` 模拟，学习这个接口见 [SAP标准接口.md](SAP标准接口.md)，接口清单和调用时序图在 `docs/figures/`。
 
 ## 运行
 

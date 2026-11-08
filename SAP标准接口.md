@@ -4,6 +4,22 @@
 
 不需要公司的测试系统。`docker compose up --build -d` 之后，下面每一步都能在本机 PowerShell 里执行。
 
+## 图
+
+三张图都在 `docs/figures/`，每张有 PDF、SVG 和 600 dpi PNG，中文版文件名以 `_zh` 结尾，英文版以 `_en` 结尾。改了接口以后，在该目录执行 `python make_figures.py` 重新生成（需要 matplotlib）。
+
+**图 1 系统与接口总览。** a 是各系统和它们之间的接口编号，b 是每个编号对应的方法、路径和用途。
+
+![图 1](docs/figures/fig1_interfaces_zh.png)
+
+**图 2 任务 1000000001 的调用时序。** 消息编号与图 1 一致，左侧是阶段和实测时间。
+
+![图 2](docs/figures/fig2_sequence_zh.png)
+
+**图 3 确认请求的校验链和状态。** a 是一次 `ConfirmWarehouseTaskExact` 依次经过的检查和对应的错误码，b 是仓库任务和仓库单的状态变化。
+
+![图 3](docs/figures/fig3_confirm_zh.png)
+
 ## 和真实接口一样的地方
 
 下表中的名字都对照过 SAP 公开资料（SAP 社区文章、SAP 知识库文章 3454353，以及一份针对真实 S/4HANA 的请求样例）：
