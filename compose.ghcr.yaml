@@ -1,0 +1,34 @@
+# 叠加在 compose.yaml 之上，改用 GitHub 预先构建好的镜像，本机不再构建，也不访问 Docker Hub。
+# docker compose -f compose.yaml -f compose.ghcr.yaml up -d
+# 镜像由 .github/workflows/images.yml 发布；离线时先 docker load 镜像包，再执行同一条命令。
+
+services:
+  sap:
+    image: ghcr.io/j61398257-lab/sap-wms-fleet-lab:sap
+    build: !reset null
+
+  openwms-common:
+    image: ghcr.io/j61398257-lab/sap-wms-fleet-lab:openwms-common-3.0.0
+
+  openwms-tms:
+    image: ghcr.io/j61398257-lab/sap-wms-fleet-lab:openwms-tms-2.0.0
+
+  common-compat:
+    image: ghcr.io/j61398257-lab/sap-wms-fleet-lab:common-compat
+    build: !reset null
+
+  opentcs:
+    image: ghcr.io/j61398257-lab/sap-wms-fleet-lab:opentcs
+    build: !reset null
+
+  bridge:
+    image: ghcr.io/j61398257-lab/sap-wms-fleet-lab:bridge
+    build: !reset null
+
+  python-chain:
+    image: ghcr.io/j61398257-lab/sap-wms-fleet-lab:python-chain
+    build: !reset null
+
+  board:
+    image: ghcr.io/j61398257-lab/sap-wms-fleet-lab:board
+    build: !reset null

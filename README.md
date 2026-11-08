@@ -41,6 +41,29 @@
 
 停掉用 `docker compose down`。数据都在内存里，再次 `docker compose up -d` 会从预制任务重新跑。
 
+## 不在本机构建
+
+第 3 步要访问 Docker Hub、Debian 软件源和 GitHub 三处。连不上 Docker Hub 时，可以改用 GitHub 预先构建好的镜像，有两种取法，启动命令相同。
+
+**在线拉取。** 8 个镜像都放在 GitHub 的镜像仓库 `ghcr.io/j61398257-lab/sap-wms-fleet-lab`，不用登录。在仓库目录执行：
+
+```powershell
+docker compose -f compose.yaml -f compose.ghcr.yaml up -d
+```
+
+`compose.ghcr.yaml` 把每个服务换成 `ghcr.io` 上的镜像，本机不再构建，大约下载 1 GB。
+
+**离线导入。** 在 [Releases](https://github.com/j61398257-lab/sap-wms-fleet-lab/releases/latest) 页面下载 `sap-wms-fleet-lab-images.tar.gz`，这是同样 8 个镜像打成的一个文件。可以在能上网的电脑下载后拷过来，放进仓库目录，执行：
+
+```powershell
+docker load -i sap-wms-fleet-lab-images.tar.gz
+docker compose -f compose.yaml -f compose.ghcr.yaml up -d
+```
+
+镜像已经在本机，所以不会再联网。之后的启动、停止都在后面加同样的 `-f` 参数，例如 `docker compose -f compose.yaml -f compose.ghcr.yaml down`。
+
+这两种镜像由 `.github/workflows/images.yml` 生成：每次推送 main 会重新发布 `ghcr.io` 上的镜像，推送 `v` 开头的标签会额外生成离线镜像包。改了本地代码想看效果时，还是用第 3 步的 `docker compose up --build -d`。
+
 ## 再下一笔任务
 
 完整版的 SAP 模拟的是 S/4HANA EWM 的标准接口 `API_WAREHOUSE_ORDER_TASK_2`，路径、实体名、字段名、确认动作和真实系统一样。用标准接口新建一个仓库任务，要先取 CSRF 令牌：

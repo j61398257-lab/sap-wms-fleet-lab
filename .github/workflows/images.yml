@@ -1,0 +1,58 @@
+name: 发布镜像
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  REPO: ghcr.io/j61398257-lab/sap-wms-fleet-lab
+
+jobs:
+  images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 构建本仓库的六个镜像
+        run: |
+          build() { docker build -t "$REPO:$1" "$2"; }
+          build sap sap
+          build common-compat common-compat
+          build opentcs opentcs
+          build bridge bridge
+          build python-chain python
+          build board board
+
+      - name: 转存 OpenWMS 镜像
+        run: |
+          copy() { docker pull "$1" && docker tag "$1" "$REPO:$2"; }
+          copy openwms/org.openwms.common.service:3.0.0 openwms-common-3.0.0
+          copy openwms/org.openwms.tms.transportation:2.0.0 openwms-tms-2.0.0
+
+      - name: 推送到 ghcr.io
+        run: docker push --all-tags "$REPO"
+
+      - name: 打包离线镜像并发布 Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          file=sap-wms-fleet-lab-images.tar.gz
+          docker save $(docker images "$REPO" --format '{{.Repository}}:{{.Tag}}') | gzip -6 > "$file"
+          ls -lh "$file"
+          sha256sum "$file" > "$file.sha256"
+          gh release create "$GITHUB_REF_NAME" "$file" "$file.sha256" \
+            --title "$GITHUB_REF_NAME" \
+            --notes "离线镜像包，包含全部 8 个镜像。用法见 README 的「不在本机构建」一节。"
